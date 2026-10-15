@@ -69,7 +69,7 @@ now reports:
   "detail": "21.0.12.1; 64-bit; JDK; C:\\dsh-rea\\vendor\\jdk; accepted a 64-bit full JDK 21 or newer" }
 ```
 
-Note `64-bit; JDK`. Fix procedure: [install-notes.md](install-notes.md#relocating-the-bundle).
+Note `64-bit; JDK`. Fix procedure: [install-notes.md](install-notes.md#4-relocating-the-bundle-to-an-ascii-root).
 
 ---
 
