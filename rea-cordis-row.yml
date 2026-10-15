@@ -1,0 +1,111 @@
+# Profile-level override for dsh-plugin-rea's `mcp-rea` row.
+#
+# Append this to your profile's own patch file. For the desktop profile on Windows
+# that is:
+#
+#   %USERPROFILE%\.dsh\profiles\desktop\cordis.patch.yml
+#
+# The profile patch is machine-local and is never published, so this is the right
+# place for a per-machine path.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE EDITING — two behaviours that are easy to get wrong
+# ---------------------------------------------------------------------------
+#
+# 1. A profile-level patch REPLACES the row's whole `config`; it does not merge
+#    into it. So the complete config must be restated below. The shorter form that
+#    dsh-plugin-rea's examples/cordis.patch.with-env.yml suggests:
+#
+#        - id: mcp-rea
+#          config:
+#            env:
+#              JAVA_HOME: 'C:\Java\jdk'
+#
+#    was tested on DSH 0.2.0-rc.2 and produced a row carrying ONLY `env` —
+#    `command`, `args` and `transport` were gone, so the row could not launch.
+#
+#    CONSEQUENCE: if the plugin later changes its own row, this copy goes stale
+#    and silently shadows the new definition. Re-sync from
+#    node_modules/dsh-plugin-rea/cordis.patch.yml. As of dsh-plugin-rea 2.0.1 the
+#    upstream row is exactly what is reproduced below, plus nothing else.
+#
+# 2. Setting JAVA_HOME here has NO EFFECT. bin/rea-shim.mjs overwrites it from
+#    bundle.json:
+#
+#        env = { ...process.env };
+#        set("JAVA_HOME", paths.jdk);   // unconditional
+#
+#    REA_BUNDLE_ROOT is read before any set() call, so it is the override that
+#    actually works — and it is what routes the harness at an ASCII-only bundle.
+#
+# ---------------------------------------------------------------------------
+# Why an ASCII bundle root is required
+# ---------------------------------------------------------------------------
+#
+# REA's shim exports the bundle's JDK as JAVA_HOME. Ghidra's cmd-based launcher
+# (support/launch.bat) captures LaunchSupport's output through cmd, and a
+# non-ASCII JAVA_HOME is corrupted there on a GBK (cp936) console. REA then
+# reports ghidra-java as `unsupported_version` / "runtime only" and its Ghidra
+# provider stays `available: false`, which disables every native-binary tool.
+#
+# The path STRING must be ASCII; a directory junction to an ASCII location does
+# not help, because LaunchSupport emits the string it was configured with.
+# Measured, same machine:
+#
+#   JAVA_HOME=C:\Users\<non-ascii>\...\vendor\jdk          -> analyzeHeadless
+#                                                            "cannot find the path"
+#   JAVA_HOME=<junction to the same dir, ASCII name>        -> same failure
+#   JAVA_HOME=C:\dsh-rea\vendor\jdk                         -> works, provider available
+#
+# Provision the ASCII bundle with (note --root, and an EXTERNAL node — see
+# install-notes.md):
+#
+#   & "<node outside the bundle>" C:\dsh-rea\scripts\setup.mjs --root C:\dsh-rea
+#
+# ---------------------------------------------------------------------------
+
+- id: mcp-rea
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: rea
+    transport: stdio
+    command: !!js process.execPath
+    args:
+      # Literal ASCII path, deliberately. The plugin's original expression derives
+      # the shim from DSH_HOME — non-ASCII on this machine — and the harness strips
+      # DSH_* from an MCP child's environment, so absolute is both simpler and
+      # unambiguous. Change this if you put the bundle somewhere else.
+      - 'C:/dsh-rea/bin/rea-shim.mjs'
+      - mcp
+    env:
+      # Only meaningful when the harness runs on Electron; harmless for a plain
+      # Node host. The plugin's row sets it too, so keep it.
+      ELECTRON_RUN_AS_NODE: '1'
+      # The override that actually works: read by bin/rea-shim.mjs before it
+      # overwrites anything from bundle.json.
+      REA_BUNDLE_ROOT: 'C:\dsh-rea'
+    failOnStartupError: false
+
+# ---------------------------------------------------------------------------
+# Verification after restarting the harness
+# ---------------------------------------------------------------------------
+#
+# Call mcp__rea__binary_session and check:
+#
+#   analysis_provider_candidates[0].availability.status == "available"
+#   analysis_provider_candidates[0].availability.diagnostics.java_home
+#       == "C:\\dsh-rea\\vendor\\jdk"
+#   ...diagnostics.checks[name=="java"].detail contains "64-bit; JDK"
+#
+# A working install looks like:
+#
+#   {"status":"available","code":null,"reason":null,
+#    "diagnostics":{
+#      "java_home":"C:\\dsh-rea\\vendor\\jdk",
+#      "checks":[{"name":"java","ok":true,
+#                 "detail":"21.0.12.1; 64-bit; JDK; C:\\dsh-rea\\vendor\\jdk; ..."}]}}
+#
+# Do NOT use `rea doctor`'s top-level `healthy` flag as the readiness signal on its
+# own: it stays false until the optional REA skill is installed (skill:identity),
+# even when the engine is fully working. Use the Ghidra provider availability, or
+# `rea mcp doctor`.
